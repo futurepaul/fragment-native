@@ -167,42 +167,51 @@ fn ui_builder() -> impl Widget<FragmentState> {
                                     }
                                 });
 
-                                Flex::column().with_child(
-                                    Flex::row()
-                                        .with_flex_child(
-                                            Label::new(|data: &ListItem, _: &Env| {
-                                                (*data).file_name.to_string()
-                                            })
-                                            .padding(5.0)
-                                            .expand_width(),
-                                            2.0,
-                                        )
-                                        .with_flex_child(
-                                            Label::new(|data: &ListItem, _: &Env| {
-                                                let today = Utc::now().timestamp();
-                                                let seconds_old =
-                                                    data.modified.elapsed().unwrap().as_secs()
-                                                        as i64;
+                                Flex::column()
+                                    .with_child(
+                                        Flex::row()
+                                            .with_flex_child(
+                                                Label::new(|data: &ListItem, _: &Env| {
+                                                    (*data).file_name.to_string()
+                                                })
+                                                .padding(5.0)
+                                                .expand_width(),
+                                                2.0,
+                                            )
+                                            .with_flex_child(
+                                                Label::new(|data: &ListItem, _: &Env| {
+                                                    let today = Utc::now().timestamp();
+                                                    let seconds_old =
+                                                        data.modified.elapsed().unwrap().as_secs()
+                                                            as i64;
 
-                                                let date_modified = today - seconds_old;
-                                                let dt: DateTime<Utc> =
-                                                    Utc.timestamp(date_modified, 0);
+                                                    let date_modified = today - seconds_old;
+                                                    let dt: DateTime<Utc> =
+                                                        Utc.timestamp(date_modified, 0);
 
-                                                dt.format("%b %e, %Y").to_string()
-                                            })
-                                            .padding(5.0)
-                                            .expand_width(),
-                                            1.0,
-                                        )
-                                        .background(painter)
-                                        .on_click(|_, data, _| {
-                                            println!("hey");
-                                            open_note_in_editor(&data.path)
-                                        }),
-                                )
-                                // .with_child(Label::new(|data: &ListItem, _: &Env| {
-                                //     (*data).line.to_string()
-                                // }))
+                                                    dt.format("%b %e, %Y").to_string()
+                                                })
+                                                .padding(5.0)
+                                                .expand_width(),
+                                                1.0,
+                                            ),
+                                    )
+                                    .with_child(
+                                        Label::new(|data: &ListItem, _: &Env| {
+                                            match (*data).found_line.clone() {
+                                                Some(line) => line.to_string(),
+                                                None => (*data).first_line.to_string(),
+                                            }
+                                        })
+                                        .with_text_color(Color::rgb8(200, 200, 200))
+                                        .padding(druid::Insets::new(5.0, 0.0, 0.0, 5.0))
+                                        .expand_width(),
+                                    )
+                                    .background(painter)
+                                    .on_click(|_, data, _| {
+                                        println!("hey");
+                                        open_note_in_editor(&data.path)
+                                    })
                             })
                             .expand_width()
                             .lens(FragmentState::results),

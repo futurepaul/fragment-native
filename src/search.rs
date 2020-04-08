@@ -8,6 +8,7 @@ use std::time::{Instant, SystemTime};
 use grep::regex::RegexMatcher;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
+use std::io::prelude::*;
 
 use walkdir::{DirEntry, WalkDir};
 
@@ -21,7 +22,8 @@ pub struct ListItem {
     pub file_name: Arc<str>,
     #[data(same_fn = "PartialEq::eq")]
     pub modified: SystemTime,
-    pub line: Arc<str>,
+    pub first_line: Arc<str>,
+    pub found_line: Option<Arc<str>>,
 }
 
 pub enum SortMethod {
@@ -46,6 +48,24 @@ pub fn search(pattern: &str, dir: &str) -> Result<Vec<ListItem>, Box<dyn Error>>
     grep_life(pattern, &files)
 }
 
+fn first_line(path: &str) -> String {
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => panic!("Unable to read title from {}", path),
+    };
+    let mut buffer = std::io::BufReader::new(file);
+    let mut first_line = String::new();
+
+    match buffer.read_line(&mut first_line) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Couldn't read file: {}", path);
+        }
+    }
+
+    first_line
+}
+
 pub fn list_of_all_files(root: &str, sort_by: SortMethod) -> Vec<ListItem> {
     let list_start = Instant::now();
     // println!("gathering list of files from {}", &root);
@@ -67,7 +87,10 @@ pub fn list_of_all_files(root: &str, sort_by: SortMethod) -> Vec<ListItem> {
                             .unwrap()
                             .into(),
                         modified: get_modified_time_from_path(&entry.path().display().to_string()),
-                        line: "".into(),
+                        first_line: first_line(&entry.path().display().to_string())
+                            .trim()
+                            .into(),
+                        found_line: None,
                     })
                 }
             }
@@ -116,7 +139,8 @@ pub fn grep_life(pattern: &str, files: &Vec<ListItem>) -> Result<Vec<ListItem>, 
                     path: file.path.clone(),
                     file_name: file.file_name.clone(),
                     modified: file.modified,
-                    line: line.into(),
+                    first_line: file.first_line.clone(),
+                    found_line: Some(line.into()),
                 });
                 //we stop searching after our first find by returning false
                 Ok(false)
