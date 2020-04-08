@@ -1,15 +1,15 @@
 use argh::FromArgs;
-use druid::widget::{
-    Button, Checkbox, Container, Flex, Label, List, MainAxisAlignment, Painter, Scroll, Split,
-    TextBox, WidgetExt,
-};
+use druid::widget::{Flex, Label, List, Painter, Scroll, Split, TextBox, WidgetExt};
 use druid::{
-    theme, AppLauncher, Color, Data, Env, ExtEventSink, Lens, LocalizedString, PlatformError,
-    RenderContext, Selector, Widget, WindowDesc,
+    theme, AppLauncher, Color, Data, Env, ExtEventSink, Lens, LocalizedString, RenderContext,
+    Widget, WindowDesc,
 };
-use std::mem;
 use std::sync::Arc;
 use std::thread;
+
+use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
+
+use chrono::prelude::*;
 
 use open;
 
@@ -20,7 +20,7 @@ mod keyup;
 use keyup::KeyUp;
 
 mod search_controller;
-use search_controller::{Search, SEARCH_RESULTS};
+use search_controller::{Search, REFRESH_SEARCH, SEARCH_RESULTS};
 
 // const COUNT_BG: Color = Color::grey8(0x77);
 
@@ -41,45 +41,76 @@ struct FragmentState {
 }
 
 impl FragmentState {
-    fn search(&mut self, query: impl Into<String>) {
-        self.query = query.into();
-        self.results = Arc::new(search::search(&self.query, &self.path).unwrap());
+    fn search(&self) {
+        let query = self.query.clone();
+        let path = self.path.clone();
+        let event_sink = self.event_sink.clone();
+        thread::spawn(move || {
+            // if this fails we're shutting down
+            let results = search::search(&query, &path).unwrap();
+            if let Err(_) = event_sink.submit_command(SEARCH_RESULTS, results, None) {}
+        });
     }
-}
 
-fn search(query: String, path: String, event_sink: Arc<ExtEventSink>) {
-    thread::spawn(move || {
-        // if this fails we're shutting down
-        let results = search::search(&query, &path).unwrap();
-        if let Err(_) = event_sink.submit_command(SEARCH_RESULTS, results, None) {}
-    });
+    fn watch(&self) -> RecommendedWatcher {
+        let event_sink = self.event_sink.clone();
+
+        let mut watcher: RecommendedWatcher = Watcher::new_immediate(move |res| match res {
+            Ok(event) => {
+                println!("event: {:?}", event);
+                // let results = search::search(&query, &path).unwrap();
+                if let Err(_) = event_sink.submit_command(REFRESH_SEARCH, "None", None) {}
+            }
+            Err(e) => println!("watch error: {:?}", e),
+        })
+        .unwrap();
+
+        let path = self.path.clone();
+
+        watcher
+            .watch(
+                dbg!(std::path::Path::new(&path.clone())),
+                RecursiveMode::Recursive,
+            )
+            .unwrap();
+
+        watcher
+    }
 }
 
 fn open_note_in_editor(path: &str) {
     open::that(path).unwrap();
 }
 
-fn main() -> Result<(), PlatformError> {
-    let fragment: Fragment = argh::from_env();
+fn create_note_and_open(path: &str, name: &str) {
+    let file_with_path = std::path::Path::new(path).join(name).with_extension("md");
+    std::fs::File::create(&file_with_path).expect("Couldn't make a file for some reason");
+    open::that(file_with_path).unwrap();
+}
 
-    // data.search("fn");
+fn main() -> Result<()> {
+    let fragment: Fragment = argh::from_env();
 
     let main_window =
         WindowDesc::new(ui_builder).title(LocalizedString::new("").with_placeholder("Fragment"));
 
     let launcher = AppLauncher::with_window(main_window);
-    // .use_simple_logger()
 
     let event_sink = launcher.get_external_handle();
 
     let data = FragmentState {
-        results: Arc::new(vec![]),
+        results: Arc::new(search::list_of_all_files(
+            &fragment.path,
+            search::SortMethod::DateNewest,
+        )),
         query: String::new(),
         path: fragment.path,
         event_sink: Arc::new(event_sink),
     };
 
-    launcher.launch(data)?;
+    let _watch = data.watch();
+
+    launcher.launch(data).unwrap();
 
     Ok(())
 }
@@ -90,9 +121,12 @@ fn ui_builder() -> impl Widget<FragmentState> {
             TextBox::new()
                 .lens(FragmentState::query)
                 .controller(KeyUp::new(|_, data: &mut FragmentState, _, key_event| {
-                    let item_text = data.query.clone();
-                    // data.search(item_text);
-                    search(item_text, data.path.clone(), data.event_sink.clone());
+                    if key_event.key_code == druid::KeyCode::Return {
+                        data.query = data.query.trim().to_string();
+                        create_note_and_open(&data.path, &data.query);
+                    } else {
+                        data.search();
+                    }
                 }))
                 .expand_width()
                 .padding(5.0),
@@ -133,18 +167,31 @@ fn ui_builder() -> impl Widget<FragmentState> {
                                     }
                                 });
 
-                                Flex::row().with_flex_child(
+                                Flex::column().with_child(
                                     Flex::row()
                                         .with_flex_child(
-                                            Label::new(|data: &ListItem, _env: &Env| {
-                                                data.file_name.clone()
+                                            Label::new(|data: &ListItem, _: &Env| {
+                                                (*data).file_name.to_string()
                                             })
                                             .padding(5.0)
                                             .expand_width(),
                                             2.0,
                                         )
                                         .with_flex_child(
-                                            Label::new("Today 1:58PM").padding(5.0).expand_width(),
+                                            Label::new(|data: &ListItem, _: &Env| {
+                                                let today = Utc::now().timestamp();
+                                                let seconds_old =
+                                                    data.modified.elapsed().unwrap().as_secs()
+                                                        as i64;
+
+                                                let date_modified = today - seconds_old;
+                                                let dt: DateTime<Utc> =
+                                                    Utc.timestamp(date_modified, 0);
+
+                                                dt.format("%b %e, %Y").to_string()
+                                            })
+                                            .padding(5.0)
+                                            .expand_width(),
                                             1.0,
                                         )
                                         .background(painter)
@@ -152,8 +199,10 @@ fn ui_builder() -> impl Widget<FragmentState> {
                                             println!("hey");
                                             open_note_in_editor(&data.path)
                                         }),
-                                    1.0,
                                 )
+                                // .with_child(Label::new(|data: &ListItem, _: &Env| {
+                                //     (*data).line.to_string()
+                                // }))
                             })
                             .expand_width()
                             .lens(FragmentState::results),
@@ -167,11 +216,6 @@ fn ui_builder() -> impl Widget<FragmentState> {
                     .padding(5.0),
                 Scroll::new(
                     Flex::column()
-                        .with_child(Label::new("Some day"))
-                        .with_child(Label::new("we'll have"))
-                        .with_child(Label::new("multiline text"))
-                        .with_child(Label::new("and it's going to be so great"))
-                        .with_child(Label::new("you just wait"))
                         .with_child(Label::new("Some day"))
                         .with_child(Label::new("we'll have"))
                         .with_child(Label::new("multiline text"))

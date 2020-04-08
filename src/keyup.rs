@@ -16,6 +16,9 @@ impl<T: Data> KeyUp<T> {
 impl<T: Data, W: Widget<T>> Controller<T, W> for KeyUp<T> {
     fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
         match event {
+            Event::WindowConnected => {
+                ctx.request_focus();
+            }
             Event::KeyUp(key_event) => {
                 (self.action)(ctx, data, env, key_event);
             }

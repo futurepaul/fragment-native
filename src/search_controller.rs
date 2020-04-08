@@ -1,10 +1,12 @@
 use druid::widget::Controller;
-use druid::{Data, Env, Event, EventCtx, KeyEvent, LifeCycle, LifeCycleCtx, Selector, Widget};
+use druid::{Env, Event, EventCtx, LifeCycle, LifeCycleCtx, Selector, Widget};
 
 use super::{FragmentState, ListItem};
+
 use std::sync::Arc;
 
 pub const SEARCH_RESULTS: Selector = Selector::new("fragment.search-results");
+pub const REFRESH_SEARCH: Selector = Selector::new("fragment.refresh-search");
 pub struct Search<FragmentState> {
     pub phantom: std::marker::PhantomData<FragmentState>,
 }
@@ -21,6 +23,11 @@ impl<W: Widget<FragmentState>> Controller<FragmentState, W> for Search<FragmentS
         match event {
             Event::Command(cmd) if cmd.selector == SEARCH_RESULTS => {
                 data.results = Arc::new(cmd.get_object::<Vec<ListItem>>().unwrap().clone());
+                ctx.request_paint();
+            }
+            Event::Command(cmd) if cmd.selector == REFRESH_SEARCH => {
+                println!("REFRESH_COMMAND event recieved");
+                data.search();
                 ctx.request_paint();
             }
             _ => (),
