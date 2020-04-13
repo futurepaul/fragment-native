@@ -1,10 +1,10 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 
 use argh::FromArgs;
 use chrono::prelude::*;
-use crossbeam_channel::unbounded;
+use crossbeam_channel::{bounded, Sender};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use open;
 
@@ -44,25 +44,12 @@ struct FragmentState {
     path: String,
     search_sequence: Arc<AtomicU64>,
     event_sink: Arc<ExtEventSink>,
+    sender: Arc<Sender<String>>,
 }
 
 impl FragmentState {
     fn search(&self) {
-        let query = self.query.clone();
-        let path = self.path.clone();
-        let event_sink = self.event_sink.clone();
-        let current_sequence = self.search_sequence.clone().fetch_add(1, Ordering::Relaxed) + 1;
-        let sequence = self.search_sequence.clone();
-        let (s, r) = unbounded();
-
-        thread::spawn(move || {
-            // if this fails we're shutting down
-            let results =
-                search::search(&query, &path, &sequence, current_sequence).expect("Search failed");
-            s.send(results).unwrap();
-        });
-        let received_results = r.iter().last().unwrap();
-        if let Err(_) = event_sink.submit_command(SEARCH_RESULTS, received_results, None) {}
+        self.sender.send(self.query.clone()).unwrap();
     }
 
     fn create_note_and_open(&self) -> Result<(), FragmentError> {
@@ -97,6 +84,35 @@ impl FragmentState {
 
         watcher
     }
+
+    fn search_thread(event_sink: Arc<ExtEventSink>, path: String) -> Arc<Sender<String>> {
+        let (s, r) = bounded::<String>(1);
+
+        let atomic = Arc::new(AtomicU64::new(0));
+
+        thread::spawn(move || loop {
+            match r.recv() {
+                Ok(query) => {
+                    let path = path.clone();
+                    let atomic = atomic.clone();
+                    let event_sink = event_sink.clone();
+                    thread::spawn(move || {
+                        let results = search::search(
+                            &query,
+                            &path,
+                            &atomic,
+                            atomic.load(Ordering::SeqCst) + 1,
+                        )
+                        .expect("Search failed");
+                        if let Err(_) = event_sink.submit_command(SEARCH_RESULTS, results, None) {};
+                    });
+                }
+                Err(e) => println!("Receive error: {:?}", e),
+            };
+        });
+
+        Arc::new(s)
+    }
 }
 
 fn main() -> Result<(), FragmentError> {
@@ -108,7 +124,7 @@ fn main() -> Result<(), FragmentError> {
 
     let launcher = AppLauncher::with_window(main_window);
 
-    let event_sink = launcher.get_external_handle();
+    let event_sink = Arc::new(launcher.get_external_handle());
 
     let search_sequence = AtomicU64::new(0);
 
@@ -117,9 +133,10 @@ fn main() -> Result<(), FragmentError> {
             search::search("", &args.path, &search_sequence, 1).expect("Couldn't search"),
         ),
         query: String::new(),
-        path: args.path,
+        path: args.path.clone(),
         search_sequence: Arc::new(search_sequence),
-        event_sink: Arc::new(event_sink),
+        event_sink: event_sink.clone(),
+        sender: FragmentState::search_thread(event_sink, args.path),
     };
 
     // Fire up a thread to notify of changes at the root path
@@ -258,7 +275,8 @@ fn build_search_box() -> impl Widget<FragmentState> {
         .controller(KeyUp::new(|_, data: &mut FragmentState, _, key_event| {
             if key_event.key_code == druid::KeyCode::Return {
                 data.query = data.query.trim().to_string();
-                data.create_note_and_open();
+                data.create_note_and_open()
+                    .expect("couldn't create note and open");
             } else {
                 data.search();
             }

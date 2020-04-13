@@ -2,7 +2,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::io::prelude::*;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
@@ -52,7 +52,9 @@ pub fn search(
     sequence_ref: &AtomicU64,
     self_sequence: u64,
 ) -> Result<Vec<ListItem>, Box<dyn Error>> {
-    let files = list_of_all_files(dir, SortMethod::DateNewest);
+    sequence_ref.fetch_add(1, Ordering::SeqCst);
+
+    let files = list_of_all_files(dir, SortMethod::DateNewest, sequence_ref, self_sequence);
 
     grep_life(pattern, &files, sequence_ref, self_sequence)
 }
@@ -75,7 +77,12 @@ fn first_line(path: &str) -> String {
     first_line
 }
 
-pub fn list_of_all_files(root: &str, sort_by: SortMethod) -> Vec<ListItem> {
+pub fn list_of_all_files(
+    root: &str,
+    sort_by: SortMethod,
+    sequence_ref: &AtomicU64,
+    self_sequence: u64,
+) -> Vec<ListItem> {
     let list_start = Instant::now();
     let dir = OsString::from(root);
 
@@ -83,6 +90,16 @@ pub fn list_of_all_files(root: &str, sort_by: SortMethod) -> Vec<ListItem> {
 
     let walker = WalkDir::new(dir).into_iter();
     for result in walker.filter_entry(|e| !is_hidden(e)) {
+        if sequence_ref.load(Ordering::SeqCst) > self_sequence {
+            eprintln!(
+                "List files ref: {}, mine: {}",
+                sequence_ref.load(Ordering::SeqCst),
+                self_sequence
+            );
+            eprintln!("List files ended early!");
+            break;
+        }
+
         match result {
             Ok(entry) => {
                 if entry.file_type().is_file() {
@@ -144,13 +161,13 @@ pub fn grep_life(
         .build();
 
     for file in files {
-        if sequence_ref.load(Ordering::Relaxed) >= self_sequence {
+        if sequence_ref.load(Ordering::SeqCst) > self_sequence {
             eprintln!(
-                "ref: {}, mine: {}",
-                sequence_ref.load(Ordering::Relaxed),
+                "Grep ref: {}, mine: {}",
+                sequence_ref.load(Ordering::SeqCst),
                 self_sequence
             );
-            eprintln!("ended early!");
+            eprintln!("Grep ended early!");
             break;
         }
         let result = searcher.search_path(
