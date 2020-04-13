@@ -1,17 +1,17 @@
+use std::sync::Arc;
+
 use druid::widget::Controller;
 use druid::{Env, Event, EventCtx, LifeCycle, LifeCycleCtx, Selector, Widget};
 
 use super::{FragmentState, ListItem};
 
-use std::sync::Arc;
-
 pub const SEARCH_RESULTS: Selector = Selector::new("fragment.search-results");
 pub const REFRESH_SEARCH: Selector = Selector::new("fragment.refresh-search");
-pub struct Search<FragmentState> {
+pub struct SearchController<FragmentState> {
     pub phantom: std::marker::PhantomData<FragmentState>,
 }
 
-impl<W: Widget<FragmentState>> Controller<FragmentState, W> for Search<FragmentState> {
+impl<W: Widget<FragmentState>> Controller<FragmentState, W> for SearchController<FragmentState> {
     fn event(
         &mut self,
         child: &mut W,
@@ -22,7 +22,11 @@ impl<W: Widget<FragmentState>> Controller<FragmentState, W> for Search<FragmentS
     ) {
         match event {
             Event::Command(cmd) if cmd.selector == SEARCH_RESULTS => {
-                data.results = Arc::new(cmd.get_object::<Vec<ListItem>>().unwrap().clone());
+                data.results = Arc::new(
+                    cmd.get_object::<Vec<ListItem>>()
+                        .expect("Couldn't get_object")
+                        .clone(),
+                );
                 ctx.request_paint();
             }
             Event::Command(cmd) if cmd.selector == REFRESH_SEARCH => {
@@ -30,10 +34,8 @@ impl<W: Widget<FragmentState>> Controller<FragmentState, W> for Search<FragmentS
                 data.search();
                 ctx.request_paint();
             }
-            _ => (),
-        }
-
-        child.event(ctx, event, data, env);
+            _ => child.event(ctx, event, data, env),
+        };
     }
 
     fn lifecycle(
@@ -44,10 +46,6 @@ impl<W: Widget<FragmentState>> Controller<FragmentState, W> for Search<FragmentS
         data: &FragmentState,
         env: &Env,
     ) {
-        // if let LifeCycle::HotChanged(_) | LifeCycle::FocusChanged(_) = event {
-        //     ctx.request_paint();
-        // }
-
         child.lifecycle(ctx, event, data, env);
     }
 }

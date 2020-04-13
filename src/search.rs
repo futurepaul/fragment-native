@@ -1,18 +1,16 @@
 use std::error::Error;
-
+use std::ffi::OsString;
+use std::io::prelude::*;
 use std::path::Path;
-
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
 use grep::regex::RegexMatcher;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
-use std::io::prelude::*;
 
 use walkdir::{DirEntry, WalkDir};
-
-use std::ffi::OsString;
 
 use druid::{Data, Lens};
 
@@ -24,6 +22,12 @@ pub struct ListItem {
     pub modified: SystemTime,
     pub first_line: Arc<str>,
     pub found_line: Option<Arc<str>>,
+}
+
+impl ListItem {
+    pub fn open_note_in_editor(&self) {
+        open::that(self.path.as_ref()).expect("Couldn't open file");
+    }
 }
 
 pub enum SortMethod {
@@ -42,10 +46,15 @@ fn is_hidden(entry: &DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-pub fn search(pattern: &str, dir: &str) -> Result<Vec<ListItem>, Box<dyn Error>> {
+pub fn search(
+    pattern: &str,
+    dir: &str,
+    sequence_ref: &AtomicU64,
+    self_sequence: u64,
+) -> Result<Vec<ListItem>, Box<dyn Error>> {
     let files = list_of_all_files(dir, SortMethod::DateNewest);
 
-    grep_life(pattern, &files)
+    grep_life(pattern, &files, sequence_ref, self_sequence)
 }
 
 fn first_line(path: &str) -> String {
@@ -58,7 +67,7 @@ fn first_line(path: &str) -> String {
 
     match buffer.read_line(&mut first_line) {
         Ok(_) => {}
-        Err(e) => {
+        Err(_e) => {
             eprintln!("Couldn't read file: {}", path);
         }
     }
@@ -68,7 +77,6 @@ fn first_line(path: &str) -> String {
 
 pub fn list_of_all_files(root: &str, sort_by: SortMethod) -> Vec<ListItem> {
     let list_start = Instant::now();
-    // println!("gathering list of files from {}", &root);
     let dir = OsString::from(root);
 
     let mut list = Vec::new();
@@ -84,7 +92,7 @@ pub fn list_of_all_files(root: &str, sort_by: SortMethod) -> Vec<ListItem> {
                             .file_name()
                             .to_os_string()
                             .into_string()
-                            .unwrap()
+                            .expect("Couldn't convert into string.")
                             .into(),
                         modified: get_modified_time_from_path(&entry.path().display().to_string()),
                         first_line: first_line(&entry.path().display().to_string())
@@ -121,7 +129,12 @@ fn get_modified_time_from_path(path: &str) -> SystemTime {
     }
 }
 
-pub fn grep_life(pattern: &str, files: &Vec<ListItem>) -> Result<Vec<ListItem>, Box<dyn Error>> {
+pub fn grep_life(
+    pattern: &str,
+    files: &Vec<ListItem>,
+    sequence_ref: &AtomicU64,
+    self_sequence: u64,
+) -> Result<Vec<ListItem>, Box<dyn Error>> {
     let grep_start = Instant::now();
 
     let mut matches: Vec<ListItem> = vec![];
@@ -131,16 +144,25 @@ pub fn grep_life(pattern: &str, files: &Vec<ListItem>) -> Result<Vec<ListItem>, 
         .build();
 
     for file in files {
+        if sequence_ref.load(Ordering::Relaxed) >= self_sequence {
+            eprintln!(
+                "ref: {}, mine: {}",
+                sequence_ref.load(Ordering::Relaxed),
+                self_sequence
+            );
+            eprintln!("ended early!");
+            break;
+        }
         let result = searcher.search_path(
             &matcher,
             &file.path.to_string(),
-            UTF8(|_, line| {
+            UTF8(|ln, line| {
                 matches.push(ListItem {
                     path: file.path.clone(),
                     file_name: file.file_name.clone(),
                     modified: file.modified,
                     first_line: file.first_line.clone(),
-                    found_line: Some(line.into()),
+                    found_line: Some(format!("{}: {}", ln, line.trim()).into()),
                 });
                 //we stop searching after our first find by returning false
                 Ok(false)
