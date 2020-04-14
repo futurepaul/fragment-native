@@ -4,7 +4,11 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+use std::thread;
 use std::time::{Instant, SystemTime};
+
+use crossbeam_channel::Sender;
 
 use grep::regex::RegexMatcher;
 use grep::searcher::sinks::UTF8;
@@ -13,6 +17,8 @@ use grep::searcher::{BinaryDetection, SearcherBuilder};
 use walkdir::{DirEntry, WalkDir};
 
 use druid::{Data, Lens};
+
+use super::Query;
 
 #[derive(Clone, Debug, Data, Lens)]
 pub struct ListItem {
@@ -44,6 +50,36 @@ fn is_hidden(entry: &DirEntry) -> bool {
         .to_str()
         .map(|s| s.starts_with("."))
         .unwrap_or(false)
+}
+
+pub fn spawn_search_thread(path: String) -> Arc<Sender<Query>> {
+    let (s, r) = crossbeam_channel::bounded::<Query>(1);
+
+    let atomic = Arc::new(AtomicU64::new(0));
+
+    thread::spawn(move || loop {
+        match r.recv() {
+            Ok(sender_query) => {
+                let query = sender_query.query.clone();
+                let event_sink = sender_query.event_sink.clone();
+
+                let path = path.clone();
+                let atomic = atomic.clone();
+
+                thread::spawn(move || {
+                    let results = search(&query, &path, &atomic, atomic.load(Ordering::SeqCst) + 1)
+                        .expect("Search failed");
+                    if let Err(_) =
+                        event_sink.submit_command(super::delegate::FINISH_SEARCH, results, None)
+                    {
+                    };
+                });
+            }
+            Err(e) => println!("Receive error: {:?}", e),
+        };
+    });
+
+    Arc::new(s)
 }
 
 pub fn search(
