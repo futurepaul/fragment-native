@@ -73,8 +73,8 @@ fn main() -> Result<(), FragmentError> {
     let args: FragmentArgs = argh::from_env();
     let path = args.path;
 
-    let main_window =
-        WindowDesc::new(ui_builder).title(LocalizedString::new("").with_placeholder("Fragment"));
+    let main_window = WindowDesc::new(ui_builder)
+        .title(LocalizedString::new("").with_placeholder("Fragment 0.1"));
     let launcher = AppLauncher::with_window(main_window);
     let event_sink = launcher.get_external_handle();
 
@@ -99,7 +99,7 @@ fn ui_builder() -> impl Widget<FragmentState> {
         .with_child(components::search_box())
         // The rest of the app
         .with_flex_child(
-            Split::horizontal(
+            Split::rows(
                 // Search results
                 components::top_pane(),
                 // File preview (TODO)
