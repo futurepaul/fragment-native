@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use druid::widget::Controller;
-use druid::{Env, Event, EventCtx, KeyCode, Widget};
+use druid::{Env, Event, EventCtx, HotKey, KbKey, Widget};
 
 use super::FragmentState;
 
@@ -30,16 +30,17 @@ impl<W: Widget<FragmentState>> Controller<FragmentState, W> for KeyUp<FragmentSt
             Event::WindowConnected => {
                 ctx.request_focus();
             }
-            // TODO: some reason I'm still getting this flash of a box character
-            Event::KeyUp(k) if k.key_code != KeyCode::Return => {
-                ctx.submit_command(super::delegate::START_SEARCH, None);
-                child.event(ctx, event, data, env);
-            }
-            Event::KeyUp(k) if k.key_code == KeyCode::Return => {
-                data.query = data.query.trim().to_string();
-                data.create_note_and_open()
-                    .expect("couldn't create note and open");
-            }
+            Event::KeyUp(key_event) => match key_event {
+                k_e if (HotKey::new(None, KbKey::Enter)).matches(k_e) => {
+                    data.query = data.query.trim().to_string();
+                    data.create_note_and_open()
+                        .expect("couldn't create note and open");
+                }
+                _ => {
+                    ctx.submit_command(super::delegate::START_SEARCH, None);
+                    child.event(ctx, event, data, env);
+                }
+            },
             _ => child.event(ctx, event, data, env),
         }
     }
