@@ -2,7 +2,7 @@
 
 This is an app for searching and creating notes. It uses [ripgrep](https://github.com/BurntSushi/ripgrep) for search and [druid](https://github.com/linebender/druid) for ui.
 
-
+![fragment-native-screenshot](https://user-images.githubusercontent.com/543668/96023815-fbbad580-0e20-11eb-956f-47860abc7fef.png)
 
 If you'd like to check it out:
 
