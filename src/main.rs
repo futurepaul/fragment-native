@@ -38,6 +38,7 @@ struct FragmentState {
     query: String,
     path: String,
     sender: Arc<Sender<Query>>,
+    selected_note: Option<String>,
 }
 
 pub struct Query {
@@ -55,6 +56,7 @@ impl FragmentState {
             query: String::new(),
             path: path.clone(),
             sender: search::spawn_search_thread(path),
+            selected_note: None,
         }
     }
 
