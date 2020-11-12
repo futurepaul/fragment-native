@@ -1,6 +1,6 @@
 use chrono::prelude::*;
 
-use druid::widget::{Flex, Label, List, Painter, Scroll, TextBox, WidgetExt};
+use druid::widget::{Either, Flex, Label, LineBreaking, List, Painter, Scroll, TextBox, WidgetExt};
 use druid::{theme, Color, Env, RenderContext, Widget};
 
 use super::keyup::KeyUp;
@@ -71,9 +71,7 @@ fn list_item() -> impl Widget<ListItem> {
             .expand_width(),
         )
         .background(painter)
-        .on_click(|_, data, _| {
-            data.open_note_in_editor();
-        })
+        .on_click(ListItem::preview_note)
 }
 
 pub(crate) fn top_pane() -> impl Widget<FragmentState> {
@@ -116,13 +114,24 @@ pub(crate) fn search_box() -> impl Widget<FragmentState> {
 }
 
 pub(crate) fn text_pane() -> impl Widget<FragmentState> {
+    let text = Either::new(
+        |data: &FragmentState, env: &Env| data.selected_note.is_some(),
+        Label::dynamic(|data: &FragmentState, env: &Env| {
+            data.selected_note.clone().unwrap_or("wtf".to_string())
+        })
+        .with_line_break_mode(LineBreaking::WordWrap),
+        Label::new(
+            "Some day we'll have multiline text and it's going to be so great just you wait",
+        )
+        .with_line_break_mode(LineBreaking::WordWrap),
+    );
     Scroll::new(
         Flex::column()
-            .with_child(Label::new("Some day"))
-            .with_child(Label::new("we'll have"))
-            .with_child(Label::new("multiline text"))
-            .with_child(Label::new("and it's going to be so great"))
-            .with_child(Label::new("you just wait")),
+            .with_child(text)
+            // .with_child(Label::new("we'll have"))
+            // .with_child(Label::new("multiline text"))
+            // .with_child(Label::new("and it's going to be so great"))
+            // .with_child(Label::new("you just wait")),
     )
     .vertical()
     .expand_width()

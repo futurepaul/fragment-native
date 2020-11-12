@@ -37,7 +37,7 @@ impl<W: Widget<FragmentState>> Controller<FragmentState, W> for KeyUp<FragmentSt
                         .expect("couldn't create note and open");
                 }
                 _ => {
-                    ctx.submit_command(super::delegate::START_SEARCH, None);
+                    ctx.submit_command(super::delegate::START_SEARCH);
                     child.event(ctx, event, data, env);
                 }
             },

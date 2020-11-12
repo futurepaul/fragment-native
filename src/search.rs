@@ -1,9 +1,9 @@
-use std::error::Error;
 use std::ffi::OsString;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::{error::Error, fs::File};
 
 use std::thread;
 use std::time::{Instant, SystemTime};
@@ -16,7 +16,9 @@ use grep::searcher::{BinaryDetection, SearcherBuilder};
 
 use walkdir::{DirEntry, WalkDir};
 
-use druid::{Data, Lens};
+use druid::{Command, Data, Env, EventCtx, Lens, Target};
+
+use crate::delegate::LOAD_NOTE;
 
 use super::Query;
 
@@ -33,6 +35,13 @@ pub struct ListItem {
 impl ListItem {
     pub fn open_note_in_editor(&self) {
         open::that(self.path.as_ref()).expect("Couldn't open file");
+    }
+    pub fn preview_note(ctx: &mut EventCtx, data: &mut ListItem, env: &Env) {
+        let mut file = File::open(data.path.as_ref()).expect("Couldn't open file");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .expect("Couldn't read file to string");
+        ctx.submit_command(Command::new(LOAD_NOTE, contents, Target::Global))
     }
 }
 
@@ -69,10 +78,11 @@ pub fn spawn_search_thread(path: String) -> Arc<Sender<Query>> {
                 thread::spawn(move || {
                     let results = search(&query, &path, &atomic, atomic.load(Ordering::SeqCst) + 1)
                         .expect("Search failed");
-                    if let Err(_) =
-                        event_sink.submit_command(super::delegate::FINISH_SEARCH, results, None)
-                    {
-                    };
+                    if let Err(_) = event_sink.submit_command(
+                        super::delegate::FINISH_SEARCH,
+                        results,
+                        Target::Global,
+                    ) {};
                 });
             }
             Err(e) => println!("Receive error: {:?}", e),
